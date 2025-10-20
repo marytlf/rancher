@@ -34,6 +34,38 @@ get_pod_count() {
   kubectl get pods --selector app="${1}" -n "${2}" -o json | jq '.items | length'
 }
 
+save_and_delete_manifest_apiservice(){
+  get_kubeconfig_context
+  kubectl get apiservice v1.ext.cattle.io -o yaml > /tmp/apiservice.yaml
+  kubectl delete -f /tmp/apiservice.yaml
+}
+
+delete_imperative_api_service() {
+  kubectl delete service imperative-api-extension -n ${rancher_namespace}
+}
+
+check_if_exist_apiservice() {
+  kubectl get service imperative-api-extension -n ${rancher_namespace} > /dev/null 2>&1
+  if [ $? -eq 0 ]; then
+    echo "Service 'imperative-api-extension' exists. Deleting APIService 'v1.ext.cattle.io'..."
+    kubectl delete apiservice v1.ext.cattle.io || true # Added || true for robustness
+    delete_imperative_api_service
+  else
+    echo "Service 'imperative-api-extension' does not exist."
+    echo "Checking for APIService 'v1.ext.cattle.io'..."
+    
+    # Check if the APIService exists.
+    kubectl get apiservice v1.ext.cattle.io > /dev/null 2>&1
+
+    if [ $? -eq 0 ]; then
+      echo "APIService 'v1.ext.cattle.io' exists. Deleting it now."
+      kubectl delete apiservice v1.ext.cattle.io || true
+    else
+      echo "APIService 'v1.ext.cattle.io' does not exist. Nothing to do."
+    fi
+  fi
+}
+
 echo "Uninstalling Rancher resources in the following namespaces: ${namespaces}"
 
 for namespace in ${namespaces}; do
@@ -78,6 +110,9 @@ done
 
 echo "Removing Rancher bootstrap secret in the following namespace: ${rancher_namespace}"
 kubectl --ignore-not-found=true delete secret bootstrap-secret -n "${rancher_namespace}"
+
+echo "Removing Rancher imperative service api"
+check_if_exist_apiservice
 
 echo "------ Summary ------"
 if [[ ${#succeeded[@]} -ne 0 ]]; then
